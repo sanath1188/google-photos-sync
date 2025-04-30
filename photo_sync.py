@@ -1,0 +1,160 @@
+import os
+import time
+import mimetypes
+import requests
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+SCOPES = ['https://www.googleapis.com/auth/photoslibrary.appendonly']
+WATCH_FOLDER = '/Users/sanathkumar/Desktop/photos'
+ALBUM_TITLE = 'Mac Photos'
+
+def get_authenticated_credentials():
+    token_path = 'token.json'
+    creds = None
+
+    if os.path.exists(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    else:
+        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open(token_path, 'w') as token_file:
+            token_file.write(creds.to_json())
+    
+    return creds
+
+creds = get_authenticated_credentials()
+
+def get_or_create_album_id(album_title, creds):
+    headers = {
+        "Authorization": f"Bearer {creds.token}"
+    }
+
+    # Step 1: List existing albums
+    list_response = requests.get(
+        url="https://photoslibrary.googleapis.com/v1/albums",
+        headers=headers,
+        params={"pageSize": 50}
+    )
+
+    if list_response.status_code == 200:
+        albums = list_response.json().get('albums', [])
+        for album in albums:
+            if album['title'] == album_title:
+                print(f"📁 Found existing album: {album_title}")
+                return album['id']
+    else:
+        print(f"⚠️ Failed to list albums: {list_response.text}")
+
+    create_response = requests.post(
+        url="https://photoslibrary.googleapis.com/v1/albums",
+        headers=headers,
+        json={"album": {"title": album_title}}
+    )
+
+    if create_response.status_code == 200:
+        album = create_response.json()
+        print(f"📁 Created new album: {album_title}")
+        return album['id']
+    else:
+        print(f"❌ Failed to create album: {create_response.text}")
+        return None
+
+def upload_photo(file_path, album_id=None):
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type or not mime_type.startswith('image/'):
+        print(f"❌ Skipping non-image file: {file_path}")
+        return
+
+    print(f"📤 Uploading {file_path} to Google Photos...")
+
+    headers = {
+        "Authorization": f"Bearer {creds.token}",
+        "Content-type": "application/octet-stream",
+        "X-Goog-Upload-File-Name": os.path.basename(file_path),
+        "X-Goog-Upload-Protocol": "raw"
+    }
+
+    with open(file_path, 'rb') as image_file:
+        upload_response = requests.post(
+            url='https://photoslibrary.googleapis.com/v1/uploads',
+            data=image_file,
+            headers=headers
+        )
+
+    upload_token = upload_response.text.strip()
+
+    if upload_response.status_code != 200 or not upload_token:
+        print(f"❌ Upload failed: {upload_response.text}")
+        return
+
+    # Step 2: Create media item (not tied to album yet)
+    create_item_body = {
+        "newMediaItems": [
+            {
+                "description": "Synced from device",
+                "simpleMediaItem": {
+                    "uploadToken": upload_token
+                }
+            }
+        ]
+    }
+
+    create_response = requests.post(
+        url='https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate',
+        headers={"Authorization": f"Bearer {creds.token}"},
+        json=create_item_body
+    )
+
+    if create_response.status_code != 200:
+        print(f"❌ Failed to create media item: {create_response.text}")
+        return
+
+    print(f"✅ Uploaded: {file_path}")
+
+    #Add uploaded media item to album
+    if album_id:
+        created_item = create_response.json().get("newMediaItemResults", [])[0]
+        media_item_id = created_item.get("mediaItem", {}).get("id")
+
+        if media_item_id:
+            add_response = requests.post(
+                url=f"https://photoslibrary.googleapis.com/v1/albums/{album_id}:batchAddMediaItems",
+                headers={"Authorization": f"Bearer {creds.token}"},
+                json={"mediaItemIds": [media_item_id]}
+            )
+
+            if add_response.status_code == 200:
+                print(f"📁 Added to album: {album_id}")
+            else:
+                print(f"⚠️ Failed to add to album: {add_response.text}")
+
+
+class NewPhotoHandler(FileSystemEventHandler):
+    def __init__(self, album_id):
+        self.album_id = album_id
+
+    def on_created(self, event):
+        if not event.is_directory:
+            upload_photo(event.src_path, album_id=self.album_id)
+
+def start_watching():
+    album_id = get_or_create_album_id(ALBUM_TITLE, creds)
+
+    observer = Observer()
+    observer.schedule(NewPhotoHandler(album_id), path=WATCH_FOLDER, recursive=False)
+    observer.start()
+    print(f"👀 Watching {WATCH_FOLDER} for new photos... Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
+if __name__ == '__main__':
+    start_watching()
