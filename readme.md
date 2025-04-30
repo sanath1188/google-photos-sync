@@ -36,7 +36,7 @@ pip install -r requirements.txt
 - Enable the Google Photos Library API
 - Go to APIs & Services > Credentials
 - Create OAuth 2.0 Client ID (Application type: Desktop App)
-- Download the credentials.json and place it in your project directory
+- Download the credentials.json and place it in the project's root directory
 
 ### 4. Run the script
 
@@ -48,12 +48,7 @@ The first time, it will open a browser window for you to log in and authorize th
 
 ### 5. Configuration
 
-In photo_sync.py, update the following values at the top of the script:
-
-```bash
-WATCH_FOLDER = '/Users/yourname/Desktop/photos'  # 👈 Folder to watch
-ALBUM_TITLE = 'Synced Photos'                    # 👈 Album name in Google Photos
-```
+Copy the .env.sample to a .env file and add the necessary values.
 
 You can change ALBUM_TITLE to any name you like — the album will be created if it doesn’t already exist.
 

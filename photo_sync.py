@@ -4,13 +4,15 @@ import mimetypes
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from dotenv import load_dotenv
 
-SCOPES = ['https://www.googleapis.com/auth/photoslibrary.appendonly']
-WATCH_FOLDER = '/Users/sanathkumar/Desktop/photos'
-ALBUM_TITLE = 'Mac Photos'
+load_dotenv()
+
+WATCH_FOLDER = os.getenv("WATCH_FOLDER", "./photos")
+ALBUM_TITLE = os.getenv("ALBUM_TITLE", "Synced Photos")
+SCOPES = [scope.strip() for scope in os.getenv("SCOPES", "https://www.googleapis.com/auth/photoslibrary.appendonly").split(",")]
 
 def get_authenticated_credentials():
     token_path = 'token.json'
@@ -23,7 +25,7 @@ def get_authenticated_credentials():
         creds = flow.run_local_server(port=0)
         with open(token_path, 'w') as token_file:
             token_file.write(creds.to_json())
-    
+
     return creds
 
 creds = get_authenticated_credentials()
@@ -33,7 +35,6 @@ def get_or_create_album_id(album_title, creds):
         "Authorization": f"Bearer {creds.token}"
     }
 
-    # Step 1: List existing albums
     list_response = requests.get(
         url="https://photoslibrary.googleapis.com/v1/albums",
         headers=headers,
@@ -91,7 +92,6 @@ def upload_photo(file_path, album_id=None):
         print(f"❌ Upload failed: {upload_response.text}")
         return
 
-    # Step 2: Create media item (not tied to album yet)
     create_item_body = {
         "newMediaItems": [
             {
@@ -115,7 +115,6 @@ def upload_photo(file_path, album_id=None):
 
     print(f"✅ Uploaded: {file_path}")
 
-    #Add uploaded media item to album
     if album_id:
         created_item = create_response.json().get("newMediaItemResults", [])[0]
         media_item_id = created_item.get("mediaItem", {}).get("id")
@@ -131,7 +130,6 @@ def upload_photo(file_path, album_id=None):
                 print(f"📁 Added to album: {album_id}")
             else:
                 print(f"⚠️ Failed to add to album: {add_response.text}")
-
 
 class NewPhotoHandler(FileSystemEventHandler):
     def __init__(self, album_id):
