@@ -26,7 +26,7 @@ cd google-photos-sync
 ### 2. Install dependencies
 
 ```bash
-pip install google-auth google-auth-oauthlib watchdog requests
+pip install -r requirements.txt
 ```
 
 ### 3. Enable Google Photos API

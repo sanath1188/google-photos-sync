@@ -1,0 +1,4 @@
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+watchdog>=3.0.0
+requests>=2.25.0
