@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 WATCH_FOLDER = os.getenv("WATCH_FOLDER", "./photos")
-ALBUM_TITLE = os.getenv("ALBUM_TITLE", "Synced Photos")
+ALBUM_ID = os.getenv("ALBUM_ID", None)
 SCOPES = [scope.strip() for scope in os.getenv("SCOPES", "https://www.googleapis.com/auth/photoslibrary.appendonly").split(",")]
 
 def get_authenticated_credentials():
@@ -29,40 +29,6 @@ def get_authenticated_credentials():
     return creds
 
 creds = get_authenticated_credentials()
-
-def get_or_create_album_id(album_title, creds):
-    headers = {
-        "Authorization": f"Bearer {creds.token}"
-    }
-
-    list_response = requests.get(
-        url="https://photoslibrary.googleapis.com/v1/albums",
-        headers=headers,
-        params={"pageSize": 50}
-    )
-
-    if list_response.status_code == 200:
-        albums = list_response.json().get('albums', [])
-        for album in albums:
-            if album['title'] == album_title:
-                print(f"📁 Found existing album: {album_title}")
-                return album['id']
-    else:
-        print(f"⚠️ Failed to list albums: {list_response.text}")
-
-    create_response = requests.post(
-        url="https://photoslibrary.googleapis.com/v1/albums",
-        headers=headers,
-        json={"album": {"title": album_title}}
-    )
-
-    if create_response.status_code == 200:
-        album = create_response.json()
-        print(f"📁 Created new album: {album_title}")
-        return album['id']
-    else:
-        print(f"❌ Failed to create album: {create_response.text}")
-        return None
 
 def upload_photo(file_path, album_id=None):
     mime_type, _ = mimetypes.guess_type(file_path)
@@ -115,22 +81,26 @@ def upload_photo(file_path, album_id=None):
 
     print(f"✅ Uploaded: {file_path}")
 
-    if album_id:
-        created_item = create_response.json().get("newMediaItemResults", [])[0]
-        media_item_id = created_item.get("mediaItem", {}).get("id")
+    # if album_id:
+    #     try:
+    #         created_item = create_response.json().get("newMediaItemResults", [])[0]
+    #         media_item_id = created_item.get("mediaItem", {}).get("id")
 
-        if media_item_id:
-            add_response = requests.post(
-                url=f"https://photoslibrary.googleapis.com/v1/albums/{album_id}:batchAddMediaItems",
-                headers={"Authorization": f"Bearer {creds.token}"},
-                json={"mediaItemIds": [media_item_id]}
-            )
+    #         if media_item_id:
+    #             add_response = requests.post(
+    #                 url=f"https://photoslibrary.googleapis.com/v1/albums/{album_id}:batchAddMediaItems",
+    #                 headers={"Authorization": f"Bearer {creds.token}"},
+    #                 json={"mediaItemIds": [media_item_id]}
+    #             )
 
-            if add_response.status_code == 200:
-                print(f"📁 Added to album: {album_id}")
-            else:
-                print(f"⚠️ Failed to add to album: {add_response.text}")
+    #             if add_response.status_code == 200:
+    #                 print(f"📁 Added to album: {album_id}")
+    #             else:
+    #                 print(f"⚠️ Failed to add to album: {album_id} {add_response.text}")
+    #     except Exception as e:
+    #         print(f"⚠️ Could not add to album: {e}")
 
+# === File Watcher ===
 class NewPhotoHandler(FileSystemEventHandler):
     def __init__(self, album_id):
         self.album_id = album_id
@@ -140,10 +110,8 @@ class NewPhotoHandler(FileSystemEventHandler):
             upload_photo(event.src_path, album_id=self.album_id)
 
 def start_watching():
-    album_id = get_or_create_album_id(ALBUM_TITLE, creds)
-
     observer = Observer()
-    observer.schedule(NewPhotoHandler(album_id), path=WATCH_FOLDER, recursive=False)
+    observer.schedule(NewPhotoHandler(ALBUM_ID), path=WATCH_FOLDER, recursive=False)
     observer.start()
     print(f"👀 Watching {WATCH_FOLDER} for new photos... Press Ctrl+C to stop.")
 
